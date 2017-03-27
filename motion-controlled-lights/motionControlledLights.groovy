@@ -1,4 +1,3 @@
-
 definition(
   name: "Motion Controlled Lights",
   namespace: "loosebits",
@@ -9,11 +8,10 @@ definition(
 
 preferences {
   page name: "rootPage"
-  page name: "timeIntervalInput"
 }
 
 def rootPage() {
-  dynamicPage(name: "rootPage", title: "", uninstall: true, nextPage:"timeIntervalInput") {
+  dynamicPage(name: "rootPage", title: "", uninstall: true, install: true, nextPage:"timeIntervalInput") {
 
     section("Which motion controller") {
       input(name: "motionController", type: "capability.motionSensor", title: "Motion Sensor", required: true)
@@ -27,29 +25,25 @@ def rootPage() {
     section("Add an additional offset") {
       input(name:"offset", type:"number", title:"Offset from Average", required: true, defaultValue: 20)
     }
+    section("More Options", hideable: true, hidden:true) {
+      paragraph "Enter start and end times for the dimmer to use a fixed value and not an average"
+        input "fixedValue", type:"number", title:"Fixed Value", defaultValue:100
+        input "startTimeType", "enum", title: "Starting at", options: [["time": "A specific time"], ["sunrise": "Sunrise"], ["sunset": "Sunset"]], defaultValue: "time", submitOnChange: true
+        if (startTimeType in ["sunrise","sunset"]) {
+          input "startTimeOffset", "number", title: "Offset in minutes (+/-)", range: "*..*", required: false
+        } else {
+          input "starting", "time", title: "Start time", required: false
+        }
+        input "endTimeType", "enum", title: "Ending at", options: [["time": "A specific time"], ["sunrise": "Sunrise"], ["sunset": "Sunset"]], defaultValue: "time", submitOnChange: true
+        if (endTimeType in ["sunrise","sunset"]) {
+          input "endTimeOffset", "number", title: "Offset in minutes (+/-)", range: "*..*", required: false
+        } else {
+          input "ending", "time", title: "End time", required: false
+        }
+    }
   }
 }
 
-def timeIntervalInput() {
-  dynamicPage(name: "timeIntervalInput", install: true, uninstall: true) {
-  section {
-      input "startTimeType", "enum", title: "Starting at", options: [["time": "A specific time"], ["sunrise": "Sunrise"], ["sunset": "Sunset"]], defaultValue: "time", submitOnChange: true
-      if (startTimeType in ["sunrise","sunset"]) {
-        input "startTimeOffset", "number", title: "Offset in minutes (+/-)", range: "*..*", required: false
-      } else {
-        input "starting", "time", title: "Start time", required: false
-      }
-    }
-    section {
-      input "endTimeType", "enum", title: "Ending at", options: [["time": "A specific time"], ["sunrise": "Sunrise"], ["sunset": "Sunset"]], defaultValue: "time", submitOnChange: true
-      if (endTimeType in ["sunrise","sunset"]) {
-        input "endTimeOffset", "number", title: "Offset in minutes (+/-)", range: "*..*", required: false
-      } else {
-        input "ending", "time", title: "End time", required: false
-      }
-    }
-  }
-}
 
 private getTimeOk() {
   def result = true
@@ -105,7 +99,7 @@ private timeWindowStop() {
 }
 
 
-def intslled() {
+def installed() {
   initialize();
 }
 
@@ -115,36 +109,33 @@ def updated() {
 }
 
 def initialize() {
-
   subscribe(motionController, "motion.active", motionDetected);
   subscribe(motionController, "motion.inactive", noMotionDetected);
 }
 
 def motionDetected(e) {
   int level = 0;
-  int size = 0;
-  def targetLevel
   if (timeOk) {
-    referenceDimmers.each { ref -> 
-      size++;
-      def refLevel = 0;
+    level = referenceDimmers.collect { ref -> 
       if (ref.currentSwitch == 'on') {
-        level += ref.levelState.numberValue.intValue();
         log.debug("Dimmer at $ref.levelState.numberValue");
+        return ref.levelState.numberValue.intValue();
       } else {
         log.debug("Dimmer off");
+        return 0;
       }
-    }
-    log.debug("Number of reference dimmers: $size, Total illumination: $level")
-    targetLevel = level / size + offset;
+    }.sum() / referenceDimmers.size() + offset;
   } else {
-    targetLevel = 100
+    level = fixedValue
   }
-  if (targetLevel > 100) {
-    targetLevel = 100;
+  if (level > 100) {
+    level = 100;
   }
-  log.debug("Setting dimmer to $targetLevel");
-  dimmer.setLevel(targetLevel);
+  if (level < 0) {
+    level = 0;
+  }
+  log.debug("Setting dimmer to $level");
+  dimmer.setLevel(level);
 }
 
 def noMotionDetected(e) {
